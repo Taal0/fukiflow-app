@@ -1,0 +1,18 @@
+[Unit]
+Description=FukiFlow App (catalog + seed + vision proxy)
+After=network.target fukiflow-vision.service
+Wants=fukiflow-vision.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fukiflow/fukiflow-app
+Environment=VISION_URL=http://127.0.0.1:8001
+Environment=SEED_DIR=/opt/fukiflow/fukiflow-app/data/seed
+Environment=DB_PATH=/opt/fukiflow/fukiflow-app/data/fukiflow.db
+ExecStart=/opt/fukiflow/fukiflow-app/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
