@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from ..db import get_db
+from ..edits import empty_edit, load_page_edit
 from ..models import AssetUrls, LayerAssetOut, PageDetail, PageMeta
 from ..settings import get_settings
 
@@ -52,6 +53,7 @@ def get_page(page_id: int) -> PageDetail:
             """,
             (page_id,),
         ).fetchall()
+        loaded_edit = load_page_edit(conn, page_id)
 
     slug = row["chapter_slug"]
     stem = row["stem"]
@@ -89,6 +91,12 @@ def get_page(page_id: int) -> PageDetail:
         for L in layer_rows
     ]
 
+    if loaded_edit is None:
+        edit_doc = empty_edit(rev=0)
+        edit_rev = 0
+    else:
+        edit_doc, edit_rev = loaded_edit
+
     return PageDetail(
         page=PageMeta(
             id=row["id"],
@@ -107,4 +115,6 @@ def get_page(page_id: int) -> PageDetail:
         doc=doc,
         assets=urls,
         layer_assets=layers,
+        edit=edit_doc,
+        edit_rev=edit_rev,
     )

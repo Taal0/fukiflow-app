@@ -22,6 +22,29 @@ class PageSummary(BaseModel):
     clean_status: str
     typeset_status: str
     bubble_count: int
+    done_count: int = 0
+
+
+class PageProgress(BaseModel):
+    page_id: int
+    page_no: int
+    bubble_count: int
+    done_count: int
+
+
+class ChapterProgress(BaseModel):
+    slug: str
+    pages: List[PageProgress]
+
+
+class PageEditOut(BaseModel):
+    rev: int
+    edit: Dict[str, Any]
+
+
+class PageEditPut(BaseModel):
+    rev: int
+    edit: Dict[str, Any]
 
 
 class PageMeta(BaseModel):
@@ -62,6 +85,8 @@ class PageDetail(BaseModel):
     doc: Dict[str, Any]
     assets: AssetUrls
     layer_assets: List[LayerAssetOut] = Field(default_factory=list)
+    edit: Optional[Dict[str, Any]] = None
+    edit_rev: int = 0
 
 
 class TypesetTextIn(BaseModel):

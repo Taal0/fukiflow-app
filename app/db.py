@@ -53,6 +53,14 @@ CREATE TABLE IF NOT EXISTS layer_asset (
     UNIQUE(page_id, layer_id)
 );
 
+CREATE TABLE IF NOT EXISTS page_edit (
+    page_id INTEGER PRIMARY KEY REFERENCES page(id) ON DELETE CASCADE,
+    rev INTEGER NOT NULL DEFAULT 0,
+    edit_json TEXT NOT NULL,
+    done_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_page_chapter ON page(chapter_id, page_no);
 CREATE INDEX IF NOT EXISTS idx_page_asset_page ON page_asset(page_id);
 CREATE INDEX IF NOT EXISTS idx_layer_asset_page ON layer_asset(page_id);
