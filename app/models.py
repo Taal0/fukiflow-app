@@ -23,6 +23,7 @@ class PageSummary(BaseModel):
     typeset_status: str
     bubble_count: int
     done_count: int = 0
+    translated_count: int = 0
 
 
 class PageProgress(BaseModel):
@@ -30,6 +31,7 @@ class PageProgress(BaseModel):
     page_no: int
     bubble_count: int
     done_count: int
+    translated_count: int = 0
 
 
 class ChapterProgress(BaseModel):

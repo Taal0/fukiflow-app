@@ -43,7 +43,8 @@ def list_pages(slug: str) -> list[PageSummary]:
             """
             SELECT p.id, p.page_no, p.stem, p.width, p.height,
                    p.clean_status, p.typeset_status, p.bubble_count,
-                   COALESCE(e.done_count, 0) AS done_count
+                   COALESCE(e.done_count, 0) AS done_count,
+                   COALESCE(e.translated_count, 0) AS translated_count
             FROM page p
             LEFT JOIN page_edit e ON e.page_id = p.id
             WHERE p.chapter_id = ?
@@ -63,6 +64,7 @@ def list_pages(slug: str) -> list[PageSummary]:
             typeset_status=r["typeset_status"],
             bubble_count=r["bubble_count"],
             done_count=int(r["done_count"]),
+            translated_count=int(r["translated_count"]),
         )
         for r in rows
     ]

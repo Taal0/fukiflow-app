@@ -1,17 +1,21 @@
 """PageEdit overlay: validate, persist helpers, and seed→working merge.
 
-The seed PageDoc is immutable. All letterer edits live in a separate overlay
-stored in SQLite (`page_edit`). Client and server must produce the same
-working doc from `merge_page_edit(seed, edit)`.
+The seed PageDoc is immutable. All letterer / translator edits live in a
+separate overlay stored in SQLite (`page_edit`). Client and server must
+produce the same working doc from `merge_page_edit(seed, edit)`.
 
-``bubbles[<id>].text`` is the shared write surface for letterer and future
+``bubbles[<id>].text`` is the shared write surface for letterer and
 translator UI — both persist through ``PUT /api/pages/{id}/edit``.
+
+Translator-only overlay keys ``regions`` / ``order`` live in the edit JSON;
+``regions`` are never injected into the PageDoc (compose/typeset unchanged).
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 # Overlay fields that belong on a bubble edit entry.
@@ -30,6 +34,11 @@ _BUBBLE_KEYS = frozenset(
     }
 )
 
+_REGION_KEYS = frozenset({"id", "bbox", "text", "status", "confidence"})
+_REGION_STATUS_OK = frozenset({"unclassified"})
+_REGION_ID_RE = re.compile(r"^r-[A-Za-z0-9_-]{2,32}$")
+_ORDER_BUBBLE_RE = re.compile(r"^b:(\d+)$")
+
 _ALIGN_OK = frozenset({"left", "center", "right"})
 _PAINT_MODES = frozenset({"fill", "restore"})
 _INSET_MIN = 0
@@ -38,7 +47,14 @@ _PAINT_Z_BASE = 150
 
 
 def empty_edit(*, rev: int = 0) -> Dict[str, Any]:
-    return {"rev": rev, "page": {}, "bubbles": {}, "paint": []}
+    return {
+        "rev": rev,
+        "page": {},
+        "bubbles": {},
+        "paint": [],
+        "regions": [],
+        "order": [],
+    }
 
 
 def count_done(edit: Dict[str, Any] | None) -> int:
@@ -47,6 +63,23 @@ def count_done(edit: Dict[str, Any] | None) -> int:
     bubbles = edit.get("bubbles") or {}
     return sum(1 for be in bubbles.values() if isinstance(be, dict) and be.get("done"))
 
+
+def count_translated(edit: Dict[str, Any] | None) -> int:
+    """Count overlay texts with non-empty strip — bubbles + regions."""
+    if not edit:
+        return 0
+    n = 0
+    for be in (edit.get("bubbles") or {}).values():
+        if isinstance(be, dict) and isinstance(be.get("text"), str) and be["text"].strip():
+            n += 1
+    for region in edit.get("regions") or []:
+        if (
+            isinstance(region, dict)
+            and isinstance(region.get("text"), str)
+            and region["text"].strip()
+        ):
+            n += 1
+    return n
 
 def layers_off_list(edit: Dict[str, Any] | None) -> List[str]:
     """Flatten per-bubble layers_off into a compose `off` list."""
@@ -101,7 +134,27 @@ def validate_edit(raw: Any) -> Dict[str, Any]:
         raise ValueError("paint must be an array")
     paint = [_validate_stroke(s, i) for i, s in enumerate(paint_in)]
 
-    return {"rev": rev, "page": page, "bubbles": bubbles, "paint": paint}
+    regions_in = raw.get("regions") or []
+    if not isinstance(regions_in, list):
+        raise ValueError("regions must be an array")
+    regions = [_validate_region(r, i) for i, r in enumerate(regions_in)]
+    region_ids = {r["id"] for r in regions}
+    if len(region_ids) != len(regions):
+        raise ValueError("regions ids must be unique")
+
+    order_in = raw.get("order") or []
+    if not isinstance(order_in, list):
+        raise ValueError("order must be an array")
+    order = _validate_order(order_in, region_ids)
+
+    return {
+        "rev": rev,
+        "page": page,
+        "bubbles": bubbles,
+        "paint": paint,
+        "regions": regions,
+        "order": order,
+    }
 
 
 def _parse_bubble_id(key: Any) -> int:
@@ -192,6 +245,193 @@ def _validate_frame(frame: Any, key: str) -> List[float]:
     if x1 <= x0 or y1 <= y0:
         raise ValueError(f"bubbles[{key}].frame must have positive area")
     return [x0, y0, x1, y1]
+
+
+def _validate_bbox(bbox: Any, label: str) -> List[float]:
+    if (
+        not isinstance(bbox, (list, tuple))
+        or len(bbox) != 4
+        or any(not isinstance(v, (int, float)) or isinstance(v, bool) for v in bbox)
+    ):
+        raise ValueError(f"{label} must be [x1,y1,x2,y2]")
+    x1, y1, x2, y2 = (float(v) for v in bbox)
+    if x1 < 0 or y1 < 0 or x2 < 0 or y2 < 0:
+        raise ValueError(f"{label} must be non-negative")
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError(f"{label} must have x2>x1 and y2>y1")
+    return [x1, y1, x2, y2]
+
+
+def _validate_region(region: Any, index: int) -> Dict[str, Any]:
+    if not isinstance(region, dict):
+        raise ValueError(f"regions[{index}] must be an object")
+    unknown = set(region) - _REGION_KEYS
+    if unknown:
+        raise ValueError(f"regions[{index}] unknown fields: {sorted(unknown)}")
+
+    rid = region.get("id")
+    if not isinstance(rid, str) or not _REGION_ID_RE.match(rid):
+        raise ValueError(
+            f"regions[{index}].id must match {_REGION_ID_RE.pattern}"
+        )
+
+    bbox = _validate_bbox(region.get("bbox"), f"regions[{index}].bbox")
+
+    text = region.get("text", "")
+    if text is None:
+        text = ""
+    if not isinstance(text, str):
+        raise ValueError(f"regions[{index}].text must be a string")
+
+    status = region.get("status", "unclassified")
+    if status not in _REGION_STATUS_OK:
+        raise ValueError(
+            f"regions[{index}].status must be one of {sorted(_REGION_STATUS_OK)}"
+        )
+
+    confidence = region.get("confidence", None)
+    if confidence is not None:
+        if (
+            not isinstance(confidence, (int, float))
+            or isinstance(confidence, bool)
+            or confidence < 0
+            or confidence > 1
+        ):
+            raise ValueError(
+                f"regions[{index}].confidence must be null or a number 0..1"
+            )
+        confidence = float(confidence)
+
+    return {
+        "id": rid,
+        "bbox": bbox,
+        "text": text,
+        "status": status,
+        "confidence": confidence,
+    }
+
+
+def _validate_order(order_in: List[Any], region_ids: set[str]) -> List[str]:
+    """Validate order tokens; drop duplicates and orphaned r-* tokens."""
+    out: List[str] = []
+    seen: set[str] = set()
+    for i, token in enumerate(order_in):
+        if not isinstance(token, str):
+            raise ValueError(f"order[{i}] must be a string")
+        if token in seen:
+            continue
+        if _ORDER_BUBBLE_RE.match(token):
+            seen.add(token)
+            out.append(token)
+            continue
+        if _REGION_ID_RE.match(token):
+            if token not in region_ids:
+                # Stale token after region delete — drop silently.
+                continue
+            seen.add(token)
+            out.append(token)
+            continue
+        raise ValueError(
+            f"order[{i}] must be 'b:<int>' or a region id (r-…), got {token!r}"
+        )
+    return out
+
+
+def ordered_items(
+    seed_doc: Dict[str, Any],
+    edit: Dict[str, Any] | None,
+) -> List[Tuple[str, str]]:
+    """Unified reading order as ``(kind, id)`` pairs.
+
+    ``kind`` is ``"bubble"`` (id = decimal string) or ``"region"`` (id = ``r-…``).
+    Tokens in ``edit.order`` come first; remaining seed bubbles append by their
+    seed ``reading_order``; remaining regions append in array order.
+    """
+    edit = edit or {}
+    regions = [r for r in (edit.get("regions") or []) if isinstance(r, dict)]
+    region_ids = {r["id"] for r in regions if isinstance(r.get("id"), str)}
+
+    bubbles = list(seed_doc.get("bubbles") or [])
+    bubble_ids: set[int] = set()
+    for b in bubbles:
+        try:
+            bubble_ids.add(int(b["id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    items: List[Tuple[str, str]] = []
+    seen_bubbles: set[int] = set()
+    seen_regions: set[str] = set()
+
+    for token in edit.get("order") or []:
+        if not isinstance(token, str):
+            continue
+        m = _ORDER_BUBBLE_RE.match(token)
+        if m:
+            bid = int(m.group(1))
+            if bid in bubble_ids and bid not in seen_bubbles:
+                seen_bubbles.add(bid)
+                items.append(("bubble", str(bid)))
+            continue
+        if token in region_ids and token not in seen_regions:
+            seen_regions.add(token)
+            items.append(("region", token))
+
+    remaining = []
+    for b in bubbles:
+        try:
+            bid = int(b["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bid not in seen_bubbles:
+            remaining.append(b)
+    remaining.sort(
+        key=lambda b: (
+            b.get("reading_order") is None,
+            b.get("reading_order") if b.get("reading_order") is not None else 0,
+            int(b.get("id") or 0),
+        )
+    )
+    for b in remaining:
+        items.append(("bubble", str(int(b["id"]))))
+
+    for r in regions:
+        rid = r.get("id")
+        if isinstance(rid, str) and rid in region_ids and rid not in seen_regions:
+            seen_regions.add(rid)
+            items.append(("region", rid))
+
+    return items
+
+
+def _apply_reading_order(
+    doc: Dict[str, Any],
+    edit: Dict[str, Any],
+) -> None:
+    """Renumber bubble ``reading_order`` from the unified order list (1..N).
+
+    Regions occupy slots but are not written into the PageDoc. Only mutates
+    when ``order`` or ``regions`` is non-empty so legacy overlays stay put.
+    """
+    has_order = bool(edit.get("order"))
+    has_regions = bool(edit.get("regions"))
+    if not has_order and not has_regions:
+        return
+
+    items = ordered_items(doc, edit)
+    bubble_pos: Dict[int, int] = {}
+    for i, (kind, ident) in enumerate(items, start=1):
+        if kind == "bubble":
+            bubble_pos[int(ident)] = i
+
+    for bubble in doc.get("bubbles") or []:
+        try:
+            bid = int(bubble["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bid in bubble_pos:
+            bubble["reading_order"] = bubble_pos[bid]
+            bubble["order_source"] = "manual"
 
 
 def _validate_stroke(stroke: Any, index: int) -> Dict[str, Any]:
@@ -319,6 +559,7 @@ def merge_page_edit(
     if paint:
         doc["layers"] = _merge_paint_layers(doc.get("layers") or [], paint, doc)
 
+    _apply_reading_order(doc, edit)
     return doc
 
 
@@ -438,6 +679,7 @@ def upsert_page_edit(
     new_rev = current_rev + 1
     validated["rev"] = new_rev
     done = count_done(validated)
+    translated = count_translated(validated)
     payload = json.dumps(validated, ensure_ascii=False, separators=(",", ":"))
     # Empty string → NULL so single-user letterer stays author-less.
     author_val = author.strip() if isinstance(author, str) and author.strip() else None
@@ -446,20 +688,21 @@ def upsert_page_edit(
         conn.execute(
             """
             INSERT INTO page_edit
-                (page_id, rev, edit_json, done_count, author, updated_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now'))
+                (page_id, rev, edit_json, done_count, translated_count,
+                 author, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
             """,
-            (page_id, new_rev, payload, done, author_val),
+            (page_id, new_rev, payload, done, translated, author_val),
         )
     else:
         conn.execute(
             """
             UPDATE page_edit
-            SET rev = ?, edit_json = ?, done_count = ?, author = ?,
-                updated_at = datetime('now')
+            SET rev = ?, edit_json = ?, done_count = ?, translated_count = ?,
+                author = ?, updated_at = datetime('now')
             WHERE page_id = ?
             """,
-            (new_rev, payload, done, author_val, page_id),
+            (new_rev, payload, done, translated, author_val, page_id),
         )
     return validated, author_val
 

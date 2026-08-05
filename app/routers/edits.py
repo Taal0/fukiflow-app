@@ -93,7 +93,8 @@ def chapter_progress(slug: str) -> ChapterProgress:
         rows = conn.execute(
             """
             SELECT p.id, p.page_no, p.bubble_count,
-                   COALESCE(e.done_count, 0) AS done_count
+                   COALESCE(e.done_count, 0) AS done_count,
+                   COALESCE(e.translated_count, 0) AS translated_count
             FROM page p
             LEFT JOIN page_edit e ON e.page_id = p.id
             WHERE p.chapter_id = ?
@@ -109,6 +110,7 @@ def chapter_progress(slug: str) -> ChapterProgress:
                 page_no=r["page_no"],
                 bubble_count=r["bubble_count"],
                 done_count=int(r["done_count"]),
+                translated_count=int(r["translated_count"]),
             )
             for r in rows
         ],

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS page_edit (
     rev INTEGER NOT NULL DEFAULT 0,
     edit_json TEXT NOT NULL,
     done_count INTEGER NOT NULL DEFAULT 0,
+    translated_count INTEGER NOT NULL DEFAULT 0,
     author TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -70,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_layer_asset_page ON layer_asset(page_id);
 # Additive migrations for DBs created before a column existed.
 _MIGRATIONS = (
     "ALTER TABLE page_edit ADD COLUMN author TEXT",
+    "ALTER TABLE page_edit ADD COLUMN translated_count INTEGER NOT NULL DEFAULT 0",
 )
 
 
