@@ -45,11 +45,28 @@ cd ../fukiflow-app
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/chapters` · `/api/chapters/{slug}/pages` | Catalog |
-| GET | `/api/pages/{id}` | PageDoc + asset URLs + cropped clean layers |
+| GET | `/api/pages/{id}` | PageDoc + asset URLs + cropped clean layers + `edit` / `edit_author` |
+| GET/PUT/DELETE | `/api/pages/{id}/edit` | PageEdit overlay (`user_id` → `author` roller seam) |
+| GET | `/api/chapters/{slug}/progress` | Per-page done_count / bubble_count |
 | GET | `/api/fonts` · `/api/fonts/{key}/file` | Font catalog (+ file proxy) |
 | POST | `/api/pages/{id}/typeset` | `{texts, font?, overrides?}` → layouts + text_layers |
 | POST | `/api/pages/{id}/compose?download=0\|1` | `{doc, off?, font?}` → PNG |
 | POST | `/api/chapters/{slug}/download` | `{pages:[{page_id,doc,off?,font?}]}` → zip |
+
+Translator / letterer write the same overlay field: `bubbles[<id>].text`.
+
+## Desktop / packaging seams
+
+Ship `fukiflow-app` + `fukiflow-vision` with `VISION_LIGHT=1` (typeset + compose only; no YOLO).
+
+| Piece | Config |
+|---|---|
+| App data | `SEED_DIR`, `DB_PATH` (paths relative to package or absolute) |
+| Vision URL | `VISION_URL` (default `http://127.0.0.1:8001`) |
+| UI API | Same-origin `/api` **or** build with `VITE_API_BASE=http://127.0.0.1:8000` |
+| Dev proxy | `VITE_DEV_PROXY_TARGET` (default `http://127.0.0.1:8000`) |
+
+No machine-absolute paths are required at runtime: assets use `SEED_DIR`-relative paths, fonts resolve via catalog basename, chapter `source_dir` stores the batch folder name only.
 
 ## Smoke
 

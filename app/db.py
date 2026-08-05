@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS page_edit (
     rev INTEGER NOT NULL DEFAULT 0,
     edit_json TEXT NOT NULL,
     done_count INTEGER NOT NULL DEFAULT 0,
+    author TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -65,6 +66,11 @@ CREATE INDEX IF NOT EXISTS idx_page_chapter ON page(chapter_id, page_no);
 CREATE INDEX IF NOT EXISTS idx_page_asset_page ON page_asset(page_id);
 CREATE INDEX IF NOT EXISTS idx_layer_asset_page ON layer_asset(page_id);
 """
+
+# Additive migrations for DBs created before a column existed.
+_MIGRATIONS = (
+    "ALTER TABLE page_edit ADD COLUMN author TEXT",
+)
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
@@ -76,12 +82,23 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    for sql in _MIGRATIONS:
+        try:
+            conn.execute(sql)
+        except sqlite3.OperationalError as e:
+            # Column already present on upgraded DBs.
+            if "duplicate column" not in str(e).lower():
+                raise
+
+
 def init_db(conn: sqlite3.Connection | None = None) -> None:
     own = conn is None
     if own:
         conn = connect()
     assert conn is not None
     conn.executescript(SCHEMA)
+    _apply_migrations(conn)
     conn.commit()
     if own:
         conn.close()

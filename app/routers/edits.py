@@ -1,4 +1,8 @@
-"""PageEdit overlay CRUD + chapter progress."""
+"""PageEdit overlay CRUD + chapter progress.
+
+``bubbles[].text`` is the letterer / translator write surface — future
+translator UI will PUT the same overlay endpoint.
+"""
 
 from __future__ import annotations
 
@@ -30,13 +34,16 @@ def get_page_edit(page_id: int) -> PageEditOut:
         _ensure_page(conn, page_id)
         loaded = load_page_edit(conn, page_id)
     if loaded is None:
-        return PageEditOut(rev=0, edit=empty_edit(rev=0))
-    edit, rev = loaded
-    return PageEditOut(rev=rev, edit=edit)
+        return PageEditOut(rev=0, edit=empty_edit(rev=0), author=None)
+    edit, rev, author = loaded
+    return PageEditOut(rev=rev, edit=edit, author=author)
 
 
 @router.put("/pages/{page_id}/edit", response_model=PageEditOut)
 def put_page_edit(page_id: int, body: PageEditPut) -> PageEditOut:
+    """Persist overlay. Optional ``user_id`` is stored as ``page_edit.author``
+    (roller seam; ignored by single-user letterer clients).
+    """
     try:
         validated = validate_edit(body.edit)
     except ValueError as e:
@@ -49,7 +56,13 @@ def put_page_edit(page_id: int, body: PageEditPut) -> PageEditOut:
     with get_db() as conn:
         _ensure_page(conn, page_id)
         try:
-            saved = upsert_page_edit(conn, page_id, validated, expected_rev=expected)
+            saved, author = upsert_page_edit(
+                conn,
+                page_id,
+                validated,
+                expected_rev=expected,
+                author=body.user_id,
+            )
         except ConflictError as e:
             raise HTTPException(
                 409,
@@ -58,7 +71,7 @@ def put_page_edit(page_id: int, body: PageEditPut) -> PageEditOut:
                     "current_rev": e.current_rev,
                 },
             ) from e
-    return PageEditOut(rev=saved["rev"], edit=saved)
+    return PageEditOut(rev=saved["rev"], edit=saved, author=author)
 
 
 @router.delete("/pages/{page_id}/edit", response_model=dict)

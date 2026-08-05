@@ -157,7 +157,7 @@ def seed_batch(
 
     conn = connect()
     init_db(conn)
-    chapter_id = _upsert_chapter(conn, slug, title, str(batch_dir.resolve()))
+    chapter_id = _upsert_chapter(conn, slug, title, batch_dir.name)
 
     imported = 0
     layer_count = 0

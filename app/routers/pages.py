@@ -94,8 +94,9 @@ def get_page(page_id: int) -> PageDetail:
     if loaded_edit is None:
         edit_doc = empty_edit(rev=0)
         edit_rev = 0
+        edit_author = None
     else:
-        edit_doc, edit_rev = loaded_edit
+        edit_doc, edit_rev, edit_author = loaded_edit
 
     return PageDetail(
         page=PageMeta(
@@ -117,4 +118,5 @@ def get_page(page_id: int) -> PageDetail:
         layer_assets=layers,
         edit=edit_doc,
         edit_rev=edit_rev,
+        edit_author=edit_author,
     )

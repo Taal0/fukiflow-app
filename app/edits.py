@@ -3,6 +3,9 @@
 The seed PageDoc is immutable. All letterer edits live in a separate overlay
 stored in SQLite (`page_edit`). Client and server must produce the same
 working doc from `merge_page_edit(seed, edit)`.
+
+``bubbles[<id>].text`` is the shared write surface for letterer and future
+translator UI — both persist through ``PUT /api/pages/{id}/edit``.
 """
 
 from __future__ import annotations
@@ -393,17 +396,20 @@ def parse_edit_json(edit_json: str | None) -> Dict[str, Any]:
     return validate_edit(raw)
 
 
-def load_page_edit(conn: Any, page_id: int) -> Optional[Tuple[Dict[str, Any], int]]:
-    """Return (edit, rev) or None if no row."""
+def load_page_edit(
+    conn: Any, page_id: int
+) -> Optional[Tuple[Dict[str, Any], int, Optional[str]]]:
+    """Return (edit, rev, author) or None if no row."""
     row = conn.execute(
-        "SELECT rev, edit_json FROM page_edit WHERE page_id = ?",
+        "SELECT rev, edit_json, author FROM page_edit WHERE page_id = ?",
         (page_id,),
     ).fetchone()
     if row is None:
         return None
     edit = parse_edit_json(row["edit_json"])
     edit["rev"] = int(row["rev"])
-    return edit, int(row["rev"])
+    author = row["author"] if "author" in row.keys() else None
+    return edit, int(row["rev"]), author
 
 
 def upsert_page_edit(
@@ -412,8 +418,12 @@ def upsert_page_edit(
     edit: Dict[str, Any],
     *,
     expected_rev: int,
-) -> Dict[str, Any]:
-    """Write overlay. Raises ConflictError if expected_rev mismatches."""
+    author: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Write overlay. Raises ConflictError if expected_rev mismatches.
+
+    ``author`` is stored on the row (roller seam), not inside edit_json.
+    """
     validated = validate_edit(edit)
     validated["rev"] = expected_rev  # client sends current rev; we bump on write
 
@@ -429,25 +439,29 @@ def upsert_page_edit(
     validated["rev"] = new_rev
     done = count_done(validated)
     payload = json.dumps(validated, ensure_ascii=False, separators=(",", ":"))
+    # Empty string → NULL so single-user letterer stays author-less.
+    author_val = author.strip() if isinstance(author, str) and author.strip() else None
 
     if row is None:
         conn.execute(
             """
-            INSERT INTO page_edit (page_id, rev, edit_json, done_count, updated_at)
-            VALUES (?, ?, ?, ?, datetime('now'))
+            INSERT INTO page_edit
+                (page_id, rev, edit_json, done_count, author, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
             """,
-            (page_id, new_rev, payload, done),
+            (page_id, new_rev, payload, done, author_val),
         )
     else:
         conn.execute(
             """
             UPDATE page_edit
-            SET rev = ?, edit_json = ?, done_count = ?, updated_at = datetime('now')
+            SET rev = ?, edit_json = ?, done_count = ?, author = ?,
+                updated_at = datetime('now')
             WHERE page_id = ?
             """,
-            (new_rev, payload, done, page_id),
+            (new_rev, payload, done, author_val, page_id),
         )
-    return validated
+    return validated, author_val
 
 
 def delete_page_edit(conn: Any, page_id: int) -> bool:

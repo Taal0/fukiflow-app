@@ -40,11 +40,19 @@ class ChapterProgress(BaseModel):
 class PageEditOut(BaseModel):
     rev: int
     edit: Dict[str, Any]
+    author: Optional[str] = Field(
+        default=None,
+        description="Last writer identity — roller seam; None for single-user letterer.",
+    )
 
 
 class PageEditPut(BaseModel):
     rev: int
     edit: Dict[str, Any]
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional roller / translator identity; stored as page_edit.author.",
+    )
 
 
 class PageMeta(BaseModel):
@@ -87,6 +95,7 @@ class PageDetail(BaseModel):
     layer_assets: List[LayerAssetOut] = Field(default_factory=list)
     edit: Optional[Dict[str, Any]] = None
     edit_rev: int = 0
+    edit_author: Optional[str] = None
 
 
 class TypesetTextIn(BaseModel):
