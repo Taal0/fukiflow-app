@@ -23,11 +23,15 @@ _BUBBLE_KEYS = frozenset(
         "frame",
         "layers_off",
         "done",
+        "inset",
     }
 )
 
 _ALIGN_OK = frozenset({"left", "center", "right"})
 _PAINT_MODES = frozenset({"fill", "restore"})
+_INSET_MIN = 0
+_INSET_MAX = 64
+_PAINT_Z_BASE = 150
 
 
 def empty_edit(*, rev: int = 0) -> Dict[str, Any]:
@@ -159,6 +163,18 @@ def _validate_bubble_edit(be: Dict[str, Any], key: str) -> Dict[str, Any]:
             raise ValueError(f"bubbles[{key}].done must be a boolean")
         if be["done"]:
             out["done"] = True
+    if "inset" in be and be["inset"] is not None:
+        inset = be["inset"]
+        if (
+            not isinstance(inset, (int, float))
+            or isinstance(inset, bool)
+            or inset < _INSET_MIN
+            or inset > _INSET_MAX
+        ):
+            raise ValueError(
+                f"bubbles[{key}].inset must be an integer {_INSET_MIN}–{_INSET_MAX}"
+            )
+        out["inset"] = int(round(inset))
     return out
 
 
@@ -234,6 +250,8 @@ def merge_page_edit(
     Applies:
     - bubble text overrides onto ``texts``
     - ``layers_off`` → ``layer.enabled = False``
+    - ``inset`` → clean layer ``mask.inset``
+    - ``paint`` strokes → ``kind=paint`` layers (z≈150)
     - page.font is returned via the edit itself (compose takes font separately)
 
     Font size / frame / leading do not rewrite seed layouts here — those go
@@ -245,8 +263,7 @@ def merge_page_edit(
 
     doc = copy.deepcopy(seed_doc)
     bubbles_edit = edit.get("bubbles") or {}
-    if not bubbles_edit:
-        return doc
+    paint = edit.get("paint") or []
 
     texts = list(doc.get("texts") or [])
     by_id: Dict[int, Dict[str, Any]] = {}
@@ -257,6 +274,7 @@ def merge_page_edit(
             continue
 
     off_ids: set[str] = set()
+    inset_by_bubble: Dict[int, int] = {}
     for key, be in bubbles_edit.items():
         if not isinstance(be, dict):
             continue
@@ -274,17 +292,95 @@ def merge_page_edit(
         for lid in be.get("layers_off") or []:
             if isinstance(lid, str):
                 off_ids.add(lid)
+        if "inset" in be and be["inset"] is not None:
+            inset_by_bubble[bid] = int(be["inset"])
 
     doc["texts"] = texts
 
-    if off_ids:
-        layers = list(doc.get("layers") or [])
+    layers = list(doc.get("layers") or [])
+    if off_ids or inset_by_bubble:
         for layer in layers:
             if layer.get("id") in off_ids:
                 layer["enabled"] = False
+            if layer.get("kind") == "clean":
+                try:
+                    bid = int(layer.get("bubble_id"))
+                except (TypeError, ValueError):
+                    continue
+                if bid in inset_by_bubble:
+                    mask = dict(layer.get("mask") or {})
+                    mask["inset"] = inset_by_bubble[bid]
+                    layer["mask"] = mask
         doc["layers"] = layers
 
+    if paint:
+        doc["layers"] = _merge_paint_layers(doc.get("layers") or [], paint, doc)
+
     return doc
+
+
+def _bubble_bbox(doc: Dict[str, Any], bubble_id: Optional[int]) -> List[int]:
+    if bubble_id is None:
+        src = doc.get("source") or {}
+        return [0, 0, int(src.get("width") or 1), int(src.get("height") or 1)]
+    for b in doc.get("bubbles") or []:
+        try:
+            if int(b.get("id")) == int(bubble_id):
+                bb = b.get("bbox")
+                if isinstance(bb, (list, tuple)) and len(bb) == 4:
+                    return [int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3])]
+        except (TypeError, ValueError):
+            continue
+    src = doc.get("source") or {}
+    return [0, 0, int(src.get("width") or 1), int(src.get("height") or 1)]
+
+
+def _merge_paint_layers(
+    layers: List[Dict[str, Any]],
+    paint: List[Dict[str, Any]],
+    doc: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Materialize overlay strokes into per-bubble paint layers (z=150+)."""
+    # Drop any prior paint layers so re-merge is idempotent.
+    kept = [L for L in layers if L.get("kind") != "paint"]
+    by_bubble: Dict[Optional[int], List[Dict[str, Any]]] = {}
+    for stroke in paint:
+        if not isinstance(stroke, dict):
+            continue
+        bid = stroke.get("bubble_id")
+        if bid is not None:
+            try:
+                bid = int(bid)
+            except (TypeError, ValueError):
+                bid = None
+        by_bubble.setdefault(bid, []).append(stroke)
+
+    for bid, strokes in sorted(
+        by_bubble.items(),
+        key=lambda kv: (-1 if kv[0] is None else kv[0]),
+    ):
+        lid = f"pnt_{bid}" if bid is not None else "pnt_page"
+        z = _PAINT_Z_BASE + (0 if bid is None else int(bid))
+        bbox = _bubble_bbox(doc, bid)
+        kept.append(
+            {
+                "id": lid,
+                "kind": "paint",
+                "name": (
+                    f"Paint / bubble {bid}" if bid is not None else "Paint / page"
+                ),
+                "group": f"bubble_{bid}" if bid is not None else None,
+                "bubble_id": bid,
+                "enabled": True,
+                "opacity": 1.0,
+                "blend": "normal",
+                "z": z,
+                "source_step": "paint.v1",
+                "bbox": bbox,
+                "strokes": strokes,
+            }
+        )
+    return kept
 
 
 def parse_edit_json(edit_json: str | None) -> Dict[str, Any]:

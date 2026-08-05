@@ -43,8 +43,8 @@ async def compose_page(
     if not orig_path.is_file():
         raise HTTPException(500, f"original image missing: {orig_path}")
 
-    if body.only_kind and body.only_kind not in {"clean", "text"}:
-        raise HTTPException(400, "only_kind must be 'clean' or 'text'")
+    if body.only_kind and body.only_kind not in {"clean", "text", "paint"}:
+        raise HTTPException(400, "only_kind must be 'clean', 'text', or 'paint'")
 
     image_bytes = orig_path.read_bytes()
     doc_json = json.dumps(body.doc)
