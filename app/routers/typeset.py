@@ -16,6 +16,11 @@ router = APIRouter(prefix="/api", tags=["typeset"])
 
 @router.post("/pages/{page_id}/typeset")
 async def typeset_page(page_id: int, body: TypesetRequest):
+    """Proxy to vision typeset.
+
+    ``body.overrides`` may include per-bubble ``font_px``, ``font_scale``,
+    ``font``, ``frame`` ``[x0,y0,x1,y1]``, ``leading``, and ``align``.
+    """
     settings = get_settings()
     with get_db() as conn:
         row = conn.execute(
