@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
-from .routers import assets, catalog, compose, download, edits, fonts, pages, typeset
+from .routers import assets, catalog, compose, download, edits, fonts, pages, typeset, vision
 from .settings import get_settings
 
 
@@ -51,7 +51,12 @@ async def limit_body_size(request: Request, call_next):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "vision_url": settings.vision_url}
+    return {
+        "status": "ok",
+        "vision_mode": settings.vision_mode,
+        "vision_url": settings.vision_url,
+        "vision_full_url": settings.vision_full_url,
+    }
 
 
 app.include_router(catalog.router)
@@ -62,3 +67,4 @@ app.include_router(fonts.router)
 app.include_router(typeset.router)
 app.include_router(compose.router)
 app.include_router(download.router)
+app.include_router(vision.router)

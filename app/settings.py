@@ -4,6 +4,8 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+_VALID_VISION_MODES = frozenset({"local", "remote"})
+
 
 class Settings:
     def __init__(self) -> None:
@@ -21,6 +23,28 @@ class Settings:
         self.vision_url = os.environ.get("VISION_URL", "http://127.0.0.1:8001").rstrip(
             "/"
         )
+
+        mode = os.environ.get("VISION_MODE", "local").strip().lower()
+        if mode not in _VALID_VISION_MODES:
+            raise ValueError(
+                f"VISION_MODE must be 'local' or 'remote', got {mode!r}"
+            )
+        self.vision_mode = mode
+
+        full_env = os.environ.get("VISION_FULL_URL", "").strip()
+        if self.vision_mode == "remote":
+            if not full_env:
+                raise ValueError(
+                    "VISION_FULL_URL is required when VISION_MODE=remote "
+                    "(no silent fallback to light)"
+                )
+            self.vision_full_url = full_env.rstrip("/")
+        else:
+            # local: full worker defaults to same host as light (Mac full on :8001)
+            self.vision_full_url = (
+                full_env.rstrip("/") if full_env else self.vision_url
+            )
+
         self.cors_origins = [
             o.strip()
             for o in os.environ.get(
