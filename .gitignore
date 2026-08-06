@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 data/seed/
+data/manga/
 data/*.db
 .env
 .DS_Store

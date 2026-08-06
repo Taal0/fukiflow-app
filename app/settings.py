@@ -16,6 +16,10 @@ class Settings:
         sp = Path(seed_env)
         self.seed_dir = sp if sp.is_absolute() else (root / sp).resolve()
 
+        upload_env = os.environ.get("UPLOAD_DIR", str(root / "data" / "manga"))
+        up = Path(upload_env)
+        self.upload_dir = up if up.is_absolute() else (root / up).resolve()
+
         db_env = os.environ.get("DB_PATH", str(root / "data" / "fukiflow.db"))
         dp = Path(db_env)
         self.db_path = dp if dp.is_absolute() else (root / dp).resolve()
@@ -52,8 +56,10 @@ class Settings:
             ).split(",")
             if o.strip()
         ]
-        # Chapter zip download sends many PageDocs; allow a larger body.
-        self.max_body_bytes = int(os.environ.get("MAX_BODY_BYTES", str(32 * 1024 * 1024)))
+        # Chapter upload (ZIP / multi-file) + zip download; allow a larger body.
+        self.max_body_bytes = int(
+            os.environ.get("MAX_BODY_BYTES", str(150 * 1024 * 1024))
+        )
         self.fonts_cache_ttl_s = float(os.environ.get("FONTS_CACHE_TTL_S", "30"))
 
 

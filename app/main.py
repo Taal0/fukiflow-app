@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
-from .routers import assets, catalog, compose, download, edits, fonts, pages, typeset, vision
+from .routers import assets, catalog, compose, delete, download, edits, fonts, pages, typeset, upload, vision
 from .settings import get_settings
 
 
@@ -68,3 +68,5 @@ app.include_router(typeset.router)
 app.include_router(compose.router)
 app.include_router(download.router)
 app.include_router(vision.router)
+app.include_router(upload.router)
+app.include_router(delete.router)

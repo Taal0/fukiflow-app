@@ -13,7 +13,9 @@ Environment=VISION_MODE=local
 # Environment=VISION_MODE=remote
 # Environment=VISION_FULL_URL=http://127.0.0.1:8002
 Environment=SEED_DIR=/opt/fukiflow/fukiflow-app/data/seed
+Environment=UPLOAD_DIR=/opt/fukiflow/fukiflow-app/data/manga
 Environment=DB_PATH=/opt/fukiflow/fukiflow-app/data/fukiflow.db
+Environment=MAX_BODY_BYTES=157286400
 ExecStart=/opt/fukiflow/fukiflow-app/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=3

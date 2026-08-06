@@ -8,7 +8,7 @@ from vision.document import PageDoc
 
 from ..db import get_db
 from ..models import TypesetRequest
-from ..settings import get_settings
+from ..storage import asset_path, chapter_dir
 from ..vision_client import vision_typeset
 
 router = APIRouter(prefix="/api", tags=["typeset"])
@@ -21,11 +21,11 @@ async def typeset_page(page_id: int, body: TypesetRequest):
     ``body.overrides`` may include per-bubble ``font_px``, ``font_scale``,
     ``font``, ``frame`` ``[x0,y0,x1,y1]``, ``leading``, and ``align``.
     """
-    settings = get_settings()
     with get_db() as conn:
         row = conn.execute(
             """
-            SELECT p.*, c.slug AS chapter_slug
+            SELECT p.*, c.slug AS chapter_slug,
+                   COALESCE(c.source_type, 'seed') AS source_type
             FROM page p
             JOIN chapter c ON c.id = p.chapter_id
             WHERE p.id = ?
@@ -41,7 +41,8 @@ async def typeset_page(page_id: int, body: TypesetRequest):
 
     slug = row["chapter_slug"]
     stem = row["stem"]
-    doc_path = settings.seed_dir / slug / stem / f"{stem}-doc.json"
+    source_type = row["source_type"] or "seed"
+    doc_path = chapter_dir(slug, source_type) / stem / f"{stem}-doc.json"
     if not doc_path.is_file():
         raise HTTPException(500, f"PageDoc missing: {doc_path}")
 
@@ -52,7 +53,7 @@ async def typeset_page(page_id: int, body: TypesetRequest):
 
     if cleaned is None:
         raise HTTPException(500, "cleaned asset missing for page")
-    cleaned_path = settings.seed_dir / cleaned["rel_path"]
+    cleaned_path = asset_path(cleaned["rel_path"], source_type)
     if not cleaned_path.is_file():
         raise HTTPException(500, f"cleaned image missing: {cleaned_path}")
 

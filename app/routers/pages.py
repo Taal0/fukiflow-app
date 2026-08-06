@@ -8,13 +8,13 @@ from fastapi import APIRouter, HTTPException
 from ..db import get_db
 from ..edits import empty_edit, load_page_edit
 from ..models import AssetUrls, LayerAssetOut, PageDetail, PageMeta
-from ..settings import get_settings
+from ..storage import chapter_dir
 
 router = APIRouter(prefix="/api", tags=["pages"])
 
 
 def _asset_url(chapter_slug: str, stem: str, rel_path: str) -> str:
-    # rel_path is relative to seed_dir, e.g. test-manga/page_1/page_1.png
+    # rel_path is relative to data root, e.g. test-manga/page_1/page_1.png
     name = Path(rel_path).name
     # Layer crops live under <stem>-layers-crop/
     parent = Path(rel_path).parent.name
@@ -25,11 +25,11 @@ def _asset_url(chapter_slug: str, stem: str, rel_path: str) -> str:
 
 @router.get("/pages/{page_id}", response_model=PageDetail)
 def get_page(page_id: int) -> PageDetail:
-    settings = get_settings()
     with get_db() as conn:
         row = conn.execute(
             """
-            SELECT p.*, c.slug AS chapter_slug
+            SELECT p.*, c.slug AS chapter_slug,
+                   COALESCE(c.source_type, 'seed') AS source_type
             FROM page p
             JOIN chapter c ON c.id = p.chapter_id
             WHERE p.id = ?
@@ -57,7 +57,8 @@ def get_page(page_id: int) -> PageDetail:
 
     slug = row["chapter_slug"]
     stem = row["stem"]
-    doc_path = settings.seed_dir / slug / stem / f"{stem}-doc.json"
+    source_type = row["source_type"] or "seed"
+    doc_path = chapter_dir(slug, source_type) / stem / f"{stem}-doc.json"
     if not doc_path.is_file():
         raise HTTPException(500, f"PageDoc missing on disk: {doc_path}")
     try:

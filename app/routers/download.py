@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..db import get_db
-from ..settings import get_settings
+from ..storage import asset_path
 from ..vision_client import vision_compose
 
 router = APIRouter(prefix="/api", tags=["download"])
@@ -33,13 +33,19 @@ async def download_chapter_zip(slug: str, body: ChapterDownloadRequest):
     if not body.pages:
         raise HTTPException(400, "pages required")
 
-    settings = get_settings()
     with get_db() as conn:
         chapter = conn.execute(
-            "SELECT id, slug, title FROM chapter WHERE slug = ?", (slug,)
+            """
+            SELECT id, slug, title,
+                   COALESCE(source_type, 'seed') AS source_type
+            FROM chapter WHERE slug = ?
+            """,
+            (slug,),
         ).fetchone()
         if chapter is None:
             raise HTTPException(404, f"chapter not found: {slug}")
+
+        source_type = chapter["source_type"] or "seed"
 
         page_rows = {
             int(r["id"]): r
@@ -76,7 +82,7 @@ async def download_chapter_zip(slug: str, body: ChapterDownloadRequest):
             rel = originals.get(item.page_id)
             if not rel:
                 raise HTTPException(500, f"original missing for page {item.page_id}")
-            orig_path = settings.seed_dir / rel
+            orig_path = asset_path(rel, source_type)
             if not orig_path.is_file():
                 raise HTTPException(500, f"original image missing: {orig_path}")
 

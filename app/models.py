@@ -10,6 +10,13 @@ class ChapterOut(BaseModel):
     slug: str
     title: str
     page_count: int
+    source_type: str = "seed"
+    created_at: Optional[str] = None
+    cover_url: Optional[str] = None
+    done_count: int = 0
+    bubble_count: int = 0
+    processing_count: int = 0
+    error_count: int = 0
 
 
 class PageSummary(BaseModel):
@@ -24,6 +31,8 @@ class PageSummary(BaseModel):
     bubble_count: int
     done_count: int = 0
     translated_count: int = 0
+    processing_status: str = "ready"
+    error_message: Optional[str] = None
 
 
 class PageProgress(BaseModel):

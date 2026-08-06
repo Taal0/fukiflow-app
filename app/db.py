@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS chapter (
     slug TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     source_dir TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'seed',
+    owner TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -28,6 +30,8 @@ CREATE TABLE IF NOT EXISTS page (
     typeset_status TEXT NOT NULL DEFAULT 'ok',
     bubble_count INTEGER NOT NULL DEFAULT 0,
     editor_bubble_count INTEGER NOT NULL DEFAULT 0,
+    processing_status TEXT NOT NULL DEFAULT 'ready',
+    error_message TEXT,
     UNIQUE(chapter_id, stem)
 );
 
@@ -72,6 +76,10 @@ CREATE INDEX IF NOT EXISTS idx_layer_asset_page ON layer_asset(page_id);
 _MIGRATIONS = (
     "ALTER TABLE page_edit ADD COLUMN author TEXT",
     "ALTER TABLE page_edit ADD COLUMN translated_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chapter ADD COLUMN source_type TEXT NOT NULL DEFAULT 'seed'",
+    "ALTER TABLE chapter ADD COLUMN owner TEXT",
+    "ALTER TABLE page ADD COLUMN processing_status TEXT NOT NULL DEFAULT 'ready'",
+    "ALTER TABLE page ADD COLUMN error_message TEXT",
 )
 
 

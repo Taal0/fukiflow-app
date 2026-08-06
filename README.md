@@ -17,11 +17,13 @@ Env (optional):
 | Variable | Default | Meaning |
 |---|---|---|
 | `SEED_DIR` | `data/seed` | Imported chapter assets |
+| `UPLOAD_DIR` | `data/manga` | User-uploaded chapter assets |
 | `DB_PATH` | `data/fukiflow.db` | SQLite catalog |
 | `VISION_URL` | `http://127.0.0.1:8001` | Light vision — typeset, compose, fonts, clean |
 | `VISION_MODE` | `local` | `local` \| `remote` — which full YOLO worker to use |
 | `VISION_FULL_URL` | `local` → same as `VISION_URL`; `remote` → **required** | Full vision — bubbles, order, pipeline |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | Browser origins |
+| `MAX_BODY_BYTES` | `150MB` | Upload / download body limit |
 
 `VISION_MODE=remote` without `VISION_FULL_URL` fails at startup (no silent light fallback for YOLO).
 
@@ -87,6 +89,9 @@ Later: same `VISION_MODE=remote` + `VISION_FULL_URL` aimed at a rented VRAM host
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/chapters` · `/api/chapters/{slug}/pages` | Catalog |
+| POST | `/api/chapters/upload` | ZIP or image files → full vision pipeline (SSE progress) |
+| DELETE | `/api/chapters/{slug}` | Delete uploaded chapter (seed → 403) |
+| DELETE | `/api/pages/{id}` | Delete uploaded page (seed → 403) |
 | GET | `/api/pages/{id}` | PageDoc + asset URLs + cropped clean layers + `edit` / `edit_author` |
 | GET/PUT/DELETE | `/api/pages/{id}/edit` | PageEdit overlay (`user_id` → `author` roller seam) |
 | GET | `/api/chapters/{slug}/progress` | Per-page done_count / bubble_count |
@@ -107,12 +112,12 @@ Ship `fukiflow-app` + `fukiflow-vision` with `VISION_LIGHT=1` (typeset + compose
 
 | Piece | Config |
 |---|---|
-| App data | `SEED_DIR`, `DB_PATH` (paths relative to package or absolute) |
+| App data | `SEED_DIR`, `UPLOAD_DIR`, `DB_PATH` (paths relative to package or absolute) |
 | Vision | `VISION_URL` (light) · `VISION_MODE` · `VISION_FULL_URL` (YOLO when remote) |
 | UI API | Same-origin `/api` **or** build with `VITE_API_BASE=http://127.0.0.1:8000` |
 | Dev proxy | `VITE_DEV_PROXY_TARGET` (default `http://127.0.0.1:8000`) |
 
-No machine-absolute paths are required at runtime: assets use `SEED_DIR`-relative paths, fonts resolve via catalog basename, chapter `source_dir` stores the batch folder name only.
+No machine-absolute paths are required at runtime: assets use `SEED_DIR` / `UPLOAD_DIR`-relative paths, fonts resolve via catalog basename, chapter `source_dir` stores the batch folder name only.
 
 ## Smoke
 

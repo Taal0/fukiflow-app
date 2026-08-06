@@ -7,7 +7,7 @@ from fastapi.responses import Response
 
 from ..db import get_db
 from ..models import ComposeRequest
-from ..settings import get_settings
+from ..storage import asset_path
 from ..vision_client import vision_compose
 
 router = APIRouter(prefix="/api", tags=["compose"])
@@ -19,11 +19,11 @@ async def compose_page(
     body: ComposeRequest,
     download: int = Query(0, description="1 → Content-Disposition attachment"),
 ):
-    settings = get_settings()
     with get_db() as conn:
         row = conn.execute(
             """
-            SELECT p.*, c.slug AS chapter_slug
+            SELECT p.*, c.slug AS chapter_slug,
+                   COALESCE(c.source_type, 'seed') AS source_type
             FROM page p
             JOIN chapter c ON c.id = p.chapter_id
             WHERE p.id = ?
@@ -39,7 +39,7 @@ async def compose_page(
 
     if original is None:
         raise HTTPException(500, "original asset missing for page")
-    orig_path = settings.seed_dir / original["rel_path"]
+    orig_path = asset_path(original["rel_path"], row["source_type"] or "seed")
     if not orig_path.is_file():
         raise HTTPException(500, f"original image missing: {orig_path}")
 

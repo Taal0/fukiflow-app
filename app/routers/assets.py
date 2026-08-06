@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from ..settings import get_settings
+from ..storage import find_page_file
 
 router = APIRouter(prefix="/api", tags=["assets"])
 
@@ -25,15 +23,11 @@ def get_asset_nested(chapter: str, stem: str, subdir: str, name: str):
 
 
 def _serve(chapter: str, stem: str, rel: str) -> FileResponse:
-    settings = get_settings()
     # Prevent path traversal.
     if ".." in chapter or ".." in stem or ".." in rel:
         raise HTTPException(400, "invalid path")
-    path = (settings.seed_dir / chapter / stem / rel).resolve()
-    root = (settings.seed_dir / chapter / stem).resolve()
-    if not str(path).startswith(str(root)):
-        raise HTTPException(400, "invalid path")
-    if not path.is_file():
+    path = find_page_file(chapter, stem, rel)
+    if path is None:
         raise HTTPException(404, f"asset not found: {rel}")
     media = "image/png" if path.suffix.lower() == ".png" else "application/octet-stream"
     return FileResponse(path, media_type=media, headers={"Cache-Control": _CACHE})
