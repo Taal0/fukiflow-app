@@ -62,6 +62,18 @@ class Settings:
         )
         self.fonts_cache_ttl_s = float(os.environ.get("FONTS_CACHE_TTL_S", "30"))
 
+        # Region YOLO verification (translator boxes → promote to bubbles).
+        # Keep ≤ vision BUBBLE_CONF (0.65): verify used to default 0.85 and
+        # missed bubbles the full-page pass already found. Crops are harder
+        # for YOLO than full pages, so matching detect threshold is the floor.
+        self.verify_conf = float(os.environ.get("VERIFY_CONF", "0.65"))
+        self.verify_padding = float(os.environ.get("VERIFY_PADDING", "0.15"))
+        self.verify_pad_min_px = float(os.environ.get("VERIFY_PAD_MIN_PX", "80"))
+        self.verify_iou_min = float(os.environ.get("VERIFY_IOU_MIN", "0.30"))
+        self.verify_additional_conf = float(
+            os.environ.get("VERIFY_ADDITIONAL_CONF", "0.50")
+        )
+
 
 @lru_cache
 def get_settings() -> Settings:

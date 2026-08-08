@@ -155,6 +155,7 @@ async def vision_bubbles(
     filename: Optional[str] = None,
     image_b64: Optional[str] = None,
     page_id: Optional[str] = None,
+    conf: Optional[float] = None,
 ) -> Dict[str, Any]:
     base = _full_base()
     data: Dict[str, Any] = {}
@@ -162,6 +163,8 @@ async def vision_bubbles(
         data["image_b64"] = image_b64
     if page_id:
         data["page_id"] = page_id
+    if conf is not None:
+        data["conf"] = str(conf)
     r = await _post_multipart(
         base_url=base,
         path="/v1/bubbles",

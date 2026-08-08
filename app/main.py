@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import init_db
-from .routers import assets, catalog, compose, delete, download, edits, fonts, pages, typeset, upload, vision
+from .routers import assets, catalog, compose, delete, download, edits, fonts, pages, typeset, upload, verify, vision
 from .settings import get_settings
 
 
@@ -62,6 +62,7 @@ def health():
 app.include_router(catalog.router)
 app.include_router(pages.router)
 app.include_router(edits.router)
+app.include_router(verify.router)
 app.include_router(assets.router)
 app.include_router(fonts.router)
 app.include_router(typeset.router)
