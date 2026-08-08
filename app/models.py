@@ -33,6 +33,7 @@ class PageSummary(BaseModel):
     translated_count: int = 0
     processing_status: str = "ready"
     error_message: Optional[str] = None
+    flag_count: int = 0
 
 
 class PageProgress(BaseModel):

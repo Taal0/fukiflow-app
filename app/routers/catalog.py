@@ -86,6 +86,7 @@ def list_pages(slug: str) -> list[PageSummary]:
             """
             SELECT p.id, p.page_no, p.stem, p.width, p.height,
                    p.clean_status, p.typeset_status, p.bubble_count,
+                   p.editor_bubble_count AS flag_count,
                    COALESCE(p.processing_status, 'ready') AS processing_status,
                    p.error_message,
                    COALESCE(e.done_count, 0) AS done_count,
@@ -112,6 +113,7 @@ def list_pages(slug: str) -> list[PageSummary]:
             translated_count=int(r["translated_count"]),
             processing_status=r["processing_status"] or "ready",
             error_message=r["error_message"],
+            flag_count=int(r["flag_count"] or 0),
         )
         for r in rows
     ]
