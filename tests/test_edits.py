@@ -410,6 +410,52 @@ def test_merge_page_edit_removes_bubble_texts_layers():
     assert "bg" in layer_ids
 
 
+def test_merge_paint_follows_clean_enabled():
+    seed = {
+        "page_id": "p1",
+        "source": {"width": 100, "height": 100},
+        "bubbles": [
+            {"id": 1, "bbox": [0, 0, 10, 10], "polygon": [], "reading_order": 1},
+            {"id": 2, "bbox": [20, 20, 30, 30], "polygon": [], "reading_order": 2},
+        ],
+        "texts": [],
+        "layers": [
+            {"id": "cln_1", "kind": "clean", "bubble_id": 1, "enabled": True},
+            {"id": "cln_2", "kind": "clean", "bubble_id": 2, "enabled": True},
+        ],
+    }
+    edit = validate_edit(
+        {
+            "rev": 1,
+            "bubbles": {"1": {"layers_off": ["cln_1"]}},
+            "paint": [
+                {
+                    "id": "s1",
+                    "bubble_id": 1,
+                    "mode": "fill",
+                    "color": [255, 255, 255],
+                    "radius_px": 4,
+                    "points": [[2, 2]],
+                },
+                {
+                    "id": "s2",
+                    "bubble_id": 2,
+                    "mode": "fill",
+                    "color": [255, 255, 255],
+                    "radius_px": 4,
+                    "points": [[22, 22]],
+                },
+            ],
+        }
+    )
+    merged = merge_page_edit(seed, edit)
+    by_id = {L["id"]: L for L in merged["layers"]}
+    assert by_id["cln_1"]["enabled"] is False
+    assert by_id["pnt_1"]["enabled"] is False
+    assert by_id["cln_2"].get("enabled", True) is not False
+    assert by_id["pnt_2"]["enabled"] is True
+
+
 def test_count_done_and_translated_skip_removed():
     edit = validate_edit(
         {
@@ -431,3 +477,18 @@ def test_count_done_and_translated_skip_removed():
     )
     assert count_done(edit) == 1
     assert count_translated(edit) == 2  # bubble 1 + region
+
+
+def test_validate_typeset_try():
+    out = validate_edit(
+        {"rev": 0, "bubbles": {"7": {"typeset_try": True, "text": "deneme"}}}
+    )
+    assert out["bubbles"]["7"]["typeset_try"] is True
+    assert out["bubbles"]["7"]["text"] == "deneme"
+
+    # False is omitted (same pattern as done).
+    out_false = validate_edit({"rev": 0, "bubbles": {"7": {"typeset_try": False}}})
+    assert "typeset_try" not in out_false["bubbles"].get("7", {})
+
+    with pytest.raises(ValueError, match="typeset_try"):
+        validate_edit({"rev": 0, "bubbles": {"7": {"typeset_try": "yes"}}})

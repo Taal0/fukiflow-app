@@ -31,6 +31,8 @@ _BUBBLE_KEYS = frozenset(
         "layers_off",
         "done",
         "inset",
+        # Letterer opted into typeset on a clean_status=editor bubble.
+        "typeset_try",
     }
 )
 
@@ -277,6 +279,11 @@ def _validate_bubble_edit(be: Dict[str, Any], key: str) -> Dict[str, Any]:
                 f"bubbles[{key}].inset must be an integer {_INSET_MIN}–{_INSET_MAX}"
             )
         out["inset"] = int(round(inset))
+    if "typeset_try" in be and be["typeset_try"] is not None:
+        if not isinstance(be["typeset_try"], bool):
+            raise ValueError(f"bubbles[{key}].typeset_try must be a boolean")
+        if be["typeset_try"]:
+            out["typeset_try"] = True
     return out
 
 
@@ -741,6 +748,25 @@ def _bubble_bbox(doc: Dict[str, Any], bubble_id: Optional[int]) -> List[int]:
     return [0, 0, int(src.get("width") or 1), int(src.get("height") or 1)]
 
 
+def _clean_enabled_for_bubble(
+    layers: List[Dict[str, Any]],
+    bubble_id: Optional[int],
+) -> bool:
+    """Paint rides on the clean stack — follow that bubble's clean layer."""
+    if bubble_id is None:
+        return True
+    for layer in layers:
+        if layer.get("kind") != "clean":
+            continue
+        try:
+            if int(layer.get("bubble_id")) != int(bubble_id):
+                continue
+        except (TypeError, ValueError):
+            continue
+        return layer.get("enabled", True) is not False
+    return True
+
+
 def _merge_paint_layers(
     layers: List[Dict[str, Any]],
     paint: List[Dict[str, Any]],
@@ -777,7 +803,7 @@ def _merge_paint_layers(
                 ),
                 "group": f"bubble_{bid}" if bid is not None else None,
                 "bubble_id": bid,
-                "enabled": True,
+                "enabled": _clean_enabled_for_bubble(kept, bid),
                 "opacity": 1.0,
                 "blend": "normal",
                 "z": z,
