@@ -34,8 +34,13 @@ _BUBBLE_KEYS = frozenset(
     }
 )
 
-_REGION_KEYS = frozenset({"id", "bbox", "text", "status", "confidence"})
-_REGION_STATUS_OK = frozenset({"unclassified"})
+_REGION_KEYS = frozenset(
+    {"id", "bbox", "text", "kind", "status", "confidence", "bubble_id"}
+)
+_REGION_STATUS_OK = frozenset(
+    {"unclassified", "verifying", "confirmed", "unconfirmed"}
+)
+_REGION_KIND_OK = frozenset({"bubble", "sfx", "other"})
 _REGION_ID_RE = re.compile(r"^r-[A-Za-z0-9_-]{2,32}$")
 _ORDER_BUBBLE_RE = re.compile(r"^b:(\d+)$")
 
@@ -54,24 +59,61 @@ def empty_edit(*, rev: int = 0) -> Dict[str, Any]:
         "paint": [],
         "regions": [],
         "order": [],
+        "removed_bubbles": [],
     }
+
+
+def _removed_bubble_set(edit: Dict[str, Any] | None) -> set[int]:
+    if not edit:
+        return set()
+    out: set[int] = set()
+    for x in edit.get("removed_bubbles") or []:
+        try:
+            bid = int(x)
+        except (TypeError, ValueError):
+            continue
+        if bid >= 0:
+            out.add(bid)
+    return out
 
 
 def count_done(edit: Dict[str, Any] | None) -> int:
     if not edit:
         return 0
+    removed = _removed_bubble_set(edit)
     bubbles = edit.get("bubbles") or {}
-    return sum(1 for be in bubbles.values() if isinstance(be, dict) and be.get("done"))
+    n = 0
+    for key, be in bubbles.items():
+        if not isinstance(be, dict) or not be.get("done"):
+            continue
+        try:
+            bid = int(key)
+        except (TypeError, ValueError):
+            continue
+        if bid in removed:
+            continue
+        n += 1
+    return n
 
 
 def count_translated(edit: Dict[str, Any] | None) -> int:
     """Count overlay texts with non-empty strip — bubbles + regions."""
     if not edit:
         return 0
+    removed = _removed_bubble_set(edit)
     n = 0
-    for be in (edit.get("bubbles") or {}).values():
-        if isinstance(be, dict) and isinstance(be.get("text"), str) and be["text"].strip():
-            n += 1
+    for key, be in (edit.get("bubbles") or {}).items():
+        if not isinstance(be, dict) or not isinstance(be.get("text"), str):
+            continue
+        if not be["text"].strip():
+            continue
+        try:
+            bid = int(key)
+        except (TypeError, ValueError):
+            continue
+        if bid in removed:
+            continue
+        n += 1
     for region in edit.get("regions") or []:
         if (
             isinstance(region, dict)
@@ -142,10 +184,13 @@ def validate_edit(raw: Any) -> Dict[str, Any]:
     if len(region_ids) != len(regions):
         raise ValueError("regions ids must be unique")
 
+    removed_bubbles = _validate_removed_bubbles(raw.get("removed_bubbles"))
+    removed_set = set(removed_bubbles)
+
     order_in = raw.get("order") or []
     if not isinstance(order_in, list):
         raise ValueError("order must be an array")
-    order = _validate_order(order_in, region_ids)
+    order = _validate_order(order_in, region_ids, removed_set)
 
     return {
         "rev": rev,
@@ -154,6 +199,7 @@ def validate_edit(raw: Any) -> Dict[str, Any]:
         "paint": paint,
         "regions": regions,
         "order": order,
+        "removed_bubbles": removed_bubbles,
     }
 
 
@@ -283,6 +329,15 @@ def _validate_region(region: Any, index: int) -> Dict[str, Any]:
     if not isinstance(text, str):
         raise ValueError(f"regions[{index}].text must be a string")
 
+    # Legacy edits omit kind — treat as bubble (YOLO-verify eligible).
+    kind = region.get("kind", "bubble")
+    if kind is None:
+        kind = "bubble"
+    if kind not in _REGION_KIND_OK:
+        raise ValueError(
+            f"regions[{index}].kind must be one of {sorted(_REGION_KIND_OK)}"
+        )
+
     status = region.get("status", "unclassified")
     if status not in _REGION_STATUS_OK:
         raise ValueError(
@@ -302,17 +357,57 @@ def _validate_region(region: Any, index: int) -> Dict[str, Any]:
             )
         confidence = float(confidence)
 
-    return {
+    bubble_id = region.get("bubble_id", None)
+    if bubble_id is not None:
+        if not isinstance(bubble_id, int) or isinstance(bubble_id, bool) or bubble_id < 0:
+            raise ValueError(
+                f"regions[{index}].bubble_id must be null or a non-negative integer"
+            )
+
+    out: Dict[str, Any] = {
         "id": rid,
         "bbox": bbox,
         "text": text,
+        "kind": kind,
         "status": status,
         "confidence": confidence,
     }
+    if bubble_id is not None:
+        out["bubble_id"] = bubble_id
+    return out
 
 
-def _validate_order(order_in: List[Any], region_ids: set[str]) -> List[str]:
-    """Validate order tokens; drop duplicates and orphaned r-* tokens."""
+def _validate_removed_bubbles(raw: Any) -> List[int]:
+    """Normalize removed_bubbles: non-neg ints, dedupe, preserve order."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("removed_bubbles must be an array")
+    out: List[int] = []
+    seen: set[int] = set()
+    for i, item in enumerate(raw):
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise ValueError(
+                f"removed_bubbles[{i}] must be a non-negative integer"
+            )
+        if item < 0:
+            raise ValueError(
+                f"removed_bubbles[{i}] must be a non-negative integer"
+            )
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _validate_order(
+    order_in: List[Any],
+    region_ids: set[str],
+    removed_bubbles: set[int] | None = None,
+) -> List[str]:
+    """Validate order tokens; drop duplicates, orphaned r-*, and removed b:N."""
+    removed = removed_bubbles or set()
     out: List[str] = []
     seen: set[str] = set()
     for i, token in enumerate(order_in):
@@ -320,7 +415,11 @@ def _validate_order(order_in: List[Any], region_ids: set[str]) -> List[str]:
             raise ValueError(f"order[{i}] must be a string")
         if token in seen:
             continue
-        if _ORDER_BUBBLE_RE.match(token):
+        m = _ORDER_BUBBLE_RE.match(token)
+        if m:
+            bid = int(m.group(1))
+            if bid in removed:
+                continue
             seen.add(token)
             out.append(token)
             continue
@@ -348,16 +447,30 @@ def ordered_items(
     seed ``reading_order``; remaining regions append in array order.
     """
     edit = edit or {}
+    removed_set = _removed_bubble_set(edit)
     regions = [r for r in (edit.get("regions") or []) if isinstance(r, dict)]
-    region_ids = {r["id"] for r in regions if isinstance(r.get("id"), str)}
+    # YOLO-confirmed regions (with bubble_id) are represented by their promoted
+    # bubble. Manual sfx/other stay confirmed without bubble_id and remain listed.
+    active_regions = [
+        r
+        for r in regions
+        if isinstance(r.get("id"), str)
+        and not (
+            r.get("status") == "confirmed" and r.get("bubble_id") is not None
+        )
+    ]
+    region_ids = {r["id"] for r in active_regions}
 
     bubbles = list(seed_doc.get("bubbles") or [])
     bubble_ids: set[int] = set()
     for b in bubbles:
         try:
-            bubble_ids.add(int(b["id"]))
+            bid = int(b["id"])
         except (KeyError, TypeError, ValueError):
             continue
+        if bid in removed_set:
+            continue
+        bubble_ids.add(bid)
 
     items: List[Tuple[str, str]] = []
     seen_bubbles: set[int] = set()
@@ -383,6 +496,8 @@ def ordered_items(
             bid = int(b["id"])
         except (KeyError, TypeError, ValueError):
             continue
+        if bid in removed_set:
+            continue
         if bid not in seen_bubbles:
             remaining.append(b)
     remaining.sort(
@@ -395,7 +510,7 @@ def ordered_items(
     for b in remaining:
         items.append(("bubble", str(int(b["id"]))))
 
-    for r in regions:
+    for r in active_regions:
         rid = r.get("id")
         if isinstance(rid, str) and rid in region_ids and rid not in seen_regions:
             seen_regions.add(rid)
@@ -505,8 +620,53 @@ def merge_page_edit(
         return seed_doc
 
     doc = copy.deepcopy(seed_doc)
+    removed_set = _removed_bubble_set(edit)
+    if removed_set:
+        kept_bubbles = []
+        for b in doc.get("bubbles") or []:
+            try:
+                if int(b["id"]) in removed_set:
+                    continue
+            except (KeyError, TypeError, ValueError):
+                pass
+            kept_bubbles.append(b)
+        doc["bubbles"] = kept_bubbles
+
+        kept_texts = []
+        for t in doc.get("texts") or []:
+            try:
+                if int(t["bubble_id"]) in removed_set:
+                    continue
+            except (KeyError, TypeError, ValueError):
+                pass
+            kept_texts.append(t)
+        doc["texts"] = kept_texts
+
+        kept_layers = []
+        for layer in doc.get("layers") or []:
+            bid = layer.get("bubble_id")
+            if bid is not None:
+                try:
+                    if int(bid) in removed_set:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            kept_layers.append(layer)
+        doc["layers"] = kept_layers
+
     bubbles_edit = edit.get("bubbles") or {}
-    paint = edit.get("paint") or []
+    paint: List[Dict[str, Any]] = []
+    for s in edit.get("paint") or []:
+        if not isinstance(s, dict):
+            continue
+        bid = s.get("bubble_id")
+        if bid is not None:
+            try:
+                if int(bid) in removed_set:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        paint.append(s)
 
     texts = list(doc.get("texts") or [])
     by_id: Dict[int, Dict[str, Any]] = {}
@@ -524,6 +684,8 @@ def merge_page_edit(
         try:
             bid = int(key)
         except (TypeError, ValueError):
+            continue
+        if bid in removed_set:
             continue
         if "text" in be:
             if bid in by_id:
