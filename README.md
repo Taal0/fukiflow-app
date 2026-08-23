@@ -90,8 +90,8 @@ Prod YOLO is Modal (`modal deploy modal_app.py` in `fukiflow-vision`). Tunnel `:
 |---|---|---|
 | GET | `/api/chapters` · `/api/chapters/{slug}/pages` | Catalog |
 | POST | `/api/chapters/upload` | ZIP or image files → full vision pipeline (SSE progress) |
-| DELETE | `/api/chapters/{slug}` | Delete uploaded chapter (seed → 403) |
-| DELETE | `/api/pages/{id}` | Delete uploaded page (seed → 403) |
+| DELETE | `/api/chapters/{slug}` | Delete chapter (seed or upload) |
+| DELETE | `/api/pages/{id}` | Delete page (seed or upload) |
 | GET | `/api/pages/{id}` | PageDoc + asset URLs + cropped clean layers + `edit` / `edit_author` |
 | GET/PUT/DELETE | `/api/pages/{id}/edit` | PageEdit overlay (`user_id` → `author` roller seam) |
 | GET | `/api/chapters/{slug}/progress` | Per-page done_count / bubble_count |

@@ -1,4 +1,4 @@
-"""Delete uploaded chapters and pages (seed chapters are protected)."""
+"""Delete chapters and pages (seed and upload)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api", tags=["delete"])
 
 @router.delete("/chapters/{slug}")
 def delete_chapter(slug: str):
-    """Delete an uploaded chapter (DB + disk). Seed chapters return 403."""
+    """Delete a chapter (DB + disk). Seed and upload both allowed."""
     with get_db() as conn:
         row = conn.execute(
             "SELECT id, slug, source_type FROM chapter WHERE slug = ?",
@@ -23,14 +23,12 @@ def delete_chapter(slug: str):
         if row is None:
             raise HTTPException(404, f"chapter not found: {slug}")
         source_type = row["source_type"] or "seed"
-        if source_type != "upload":
-            raise HTTPException(403, "seed chapters cannot be deleted")
 
         chapter_id = int(row["id"])
         # Cascade deletes page / page_asset / layer_asset / page_edit via FK.
         conn.execute("DELETE FROM chapter WHERE id = ?", (chapter_id,))
 
-    path = chapter_dir(slug, "upload")
+    path = chapter_dir(slug, source_type)
     if path.is_dir():
         shutil.rmtree(path, ignore_errors=True)
 
@@ -39,7 +37,7 @@ def delete_chapter(slug: str):
 
 @router.delete("/pages/{page_id}")
 def delete_page(page_id: int):
-    """Delete a single page. Seed chapter pages return 403."""
+    """Delete a single page (seed and upload)."""
     with get_db() as conn:
         row = conn.execute(
             """
@@ -54,8 +52,6 @@ def delete_page(page_id: int):
             raise HTTPException(404, f"page not found: {page_id}")
 
         source_type = row["source_type"] or "seed"
-        if source_type != "upload":
-            raise HTTPException(403, "seed chapter pages cannot be deleted")
 
         slug = row["slug"]
         stem = row["stem"]
@@ -71,12 +67,12 @@ def delete_page(page_id: int):
         if empty:
             conn.execute("DELETE FROM chapter WHERE id = ?", (chapter_id,))
 
-    page_path = chapter_dir(slug, "upload") / stem
+    page_path = chapter_dir(slug, source_type) / stem
     if page_path.is_dir():
         shutil.rmtree(page_path, ignore_errors=True)
 
     if empty:
-        chap_path = chapter_dir(slug, "upload")
+        chap_path = chapter_dir(slug, source_type)
         if chap_path.is_dir():
             shutil.rmtree(chap_path, ignore_errors=True)
         return {"ok": True, "page_id": page_id, "chapter_deleted": True, "slug": slug}
