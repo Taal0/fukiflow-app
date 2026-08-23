@@ -9,6 +9,8 @@ from ..db import get_db
 from ..edits import empty_edit, load_page_edit
 from ..models import AssetUrls, LayerAssetOut, PageDetail, PageMeta
 from ..storage import chapter_dir
+from ..vision_client import vision_pipeline
+from .upload import _persist_pipeline_page
 
 router = APIRouter(prefix="/api", tags=["pages"])
 
@@ -38,6 +40,21 @@ def get_page(page_id: int) -> PageDetail:
         ).fetchone()
         if row is None:
             raise HTTPException(404, f"page not found: {page_id}")
+
+        status = row["processing_status"] or "ready"
+        if status != "ready":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": (
+                        row["error_message"]
+                        if status == "error" and row["error_message"]
+                        else "Sayfa henüz hazır değil"
+                    ),
+                    "processing_status": status,
+                    "error_message": row["error_message"],
+                },
+            )
 
         assets_rows = conn.execute(
             "SELECT kind, rel_path FROM page_asset WHERE page_id = ?",
@@ -121,3 +138,70 @@ def get_page(page_id: int) -> PageDetail:
         edit_rev=edit_rev,
         edit_author=edit_author,
     )
+
+
+@router.post("/pages/{page_id}/reprocess")
+async def reprocess_page(page_id: int):
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT p.id, p.stem, c.slug,
+                   COALESCE(c.source_type, 'seed') AS source_type
+            FROM page p JOIN chapter c ON c.id = p.chapter_id
+            WHERE p.id = ?
+            """,
+            (page_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, f"page not found: {page_id}")
+        slug = row["slug"]
+        stem = row["stem"]
+        source_type = row["source_type"] or "seed"
+
+    if source_type != "upload":
+        raise HTTPException(400, "sadece upload sayfaları yeniden işlenebilir")
+
+    page_dir = chapter_dir(slug, source_type) / stem
+    orig_path = page_dir / f"{stem}-orig.png"
+    if not orig_path.is_file():
+        raise HTTPException(
+            422,
+            "orijinal görsel bulunamadı — sayfayı silip yeniden yükleyin",
+        )
+    png = orig_path.read_bytes()
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE page SET processing_status='processing', error_message=NULL WHERE id=?",
+            (page_id,),
+        )
+
+    try:
+        payload = await vision_pipeline(
+            image_bytes=png,
+            filename=f"{stem}.png",
+            page_id=stem,
+            include_layers=True,
+        )
+        with get_db() as conn:
+            _persist_pipeline_page(
+                conn,
+                page_id=page_id,
+                slug=slug,
+                stem=stem,
+                page_dir=page_dir,
+                orig_png=png,
+                payload=payload,
+            )
+    except Exception as e:
+        msg = str(getattr(e, "detail", None) or e)
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE page SET processing_status='error', error_message=? WHERE id=?",
+                (msg[:2000], page_id),
+            )
+        # 503 vision kapalı; diğer beklenmeyenler 500 — mesaj korunur.
+        status_code = getattr(e, "status_code", 500) or 500
+        raise HTTPException(status_code, msg) from e
+
+    return {"ok": True, "page_id": page_id, "processing_status": "ready"}
