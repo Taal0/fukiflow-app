@@ -8,10 +8,8 @@ Type=simple
 User=root
 WorkingDirectory=/opt/fukiflow/fukiflow-app
 Environment=VISION_URL=http://127.0.0.1:8001
-Environment=VISION_MODE=local
-# YOLO test cable / VRAM worker (uncomment; tunnel Mac→VPS :8002 or set VRAM host):
-# Environment=VISION_MODE=remote
-# Environment=VISION_FULL_URL=http://127.0.0.1:8002
+Environment=VISION_MODE=remote
+Environment=VISION_FULL_URL=https://taal0--fukiflow-vision-fastapi-app.modal.run
 Environment=SEED_DIR=/opt/fukiflow/fukiflow-app/data/seed
 Environment=UPLOAD_DIR=/opt/fukiflow/fukiflow-app/data/manga
 Environment=DB_PATH=/opt/fukiflow/fukiflow-app/data/fukiflow.db

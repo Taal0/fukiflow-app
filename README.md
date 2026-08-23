@@ -75,14 +75,14 @@ cd fukiflow-vision
 # On Mac — SSH reverse tunnel to VPS (VPS :8002 → Mac :8001)
 ssh -N -R 8002:127.0.0.1:8001 user@vps
 
-# On VPS — app (systemd or shell)
+# On VPS — app (systemd: deploy/systemd/fukiflow-app.service)
 VISION_MODE=remote \
 VISION_URL=http://127.0.0.1:8001 \
-VISION_FULL_URL=http://127.0.0.1:8002 \
+VISION_FULL_URL=https://taal0--fukiflow-vision-fastapi-app.modal.run \
   uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Later: same `VISION_MODE=remote` + `VISION_FULL_URL` aimed at a rented VRAM host; app code unchanged.
+Prod YOLO is Modal (`modal deploy modal_app.py` in `fukiflow-vision`). Tunnel `:8002` is only for Mac-local full vision.
 
 ## API (UI)
 
